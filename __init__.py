@@ -44,6 +44,8 @@ from . fc_mesh_snap_op      import FC_Mesh_Snap_Operator
 from . fc_solidify_op       import FC_SolidifyOperator
 from . fc_cloth_op          import FC_ClothOperator
 from . fc_boolean_mode      import FC_Boolean_Mode_Operator
+from . fc_shapes_panel      import FC_Shapes_Panel
+from . types.shape_data     import VertexData, ShapeData
 
 from .types.enums import *
 
@@ -92,6 +94,7 @@ bpy.types.Scene.extrude_immediate    = BoolProperty(
                                       name="Extrude Immediately", 
                                       description="Extrude primitive immediately after creation",
                                       default = False)
+
 
 # bpy.types.Scene.snap_offset = bpy.props.FloatProperty( name="Snap_offset", description="Offset for primitive snap", default = 0.01)
 
@@ -191,13 +194,17 @@ classes = (
     FC_SolidifyOperator,
     FC_ClothOperator,
     FC_ApplyAllModifiersOperator,
-    FC_Boolean_Mode_Operator
+    FC_Boolean_Mode_Operator,
+    FC_Shapes_Panel,
+    VertexData, ShapeData
 )
      
     
 def register():
     for c in classes:
         bpy.utils.register_class(c)
+
+    bpy.types.Scene.shape_list = bpy.props.CollectionProperty(type=ShapeData)
    
     # add keymap entry
     kc = bpy.context.window_manager.keyconfigs.addon
@@ -223,6 +230,9 @@ def register():
         addon_keymaps.append((km, kmi_mnu))
     
 def unregister():
+    
+    del bpy.types.Scene.shape_list
+
     for c in classes:
         bpy.utils.unregister_class(c)
 
