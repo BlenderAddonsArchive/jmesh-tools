@@ -87,7 +87,7 @@ def get_selection_center(face_index, obj):
 def get_face_center(face_index, obj):
     center = Vector((0,0,0))
 
-    if bpy.context.object is not None:
+    if obj is not None and bpy.context.object is not None:
 
         current_mode = bpy.context.object.mode
         if(face_index != -1):
