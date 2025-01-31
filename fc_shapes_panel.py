@@ -15,5 +15,5 @@ class FC_Shapes_Panel(Panel):
         layout.label(text="Shapes:")
         for i, shape in enumerate(scene.shape_list):
             row = layout.row()
-            row.prop(shape, "selected", text=f"{shape.name}")
+            row.prop(shape, "name")
         # layout.operator("shape_tool.draw_shapes", text="Draw Selected Shapes")
