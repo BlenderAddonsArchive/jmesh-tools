@@ -53,7 +53,7 @@ class Curve_Shape(Shape):
     def handle_mouse_press(self, mouse_pos_2d, mouse_pos_3d, event, context):
 
         if mouse_pos_3d is None or mouse_pos_2d is None:
-            return False
+            return 0
 
         scene = context.scene
         region = context.region
@@ -86,9 +86,9 @@ class Curve_Shape(Shape):
             self.add_v3(mouse_pos_3d)
             self.add_v2(get_2d_vertex(context, mouse_pos_3d))
             self._normals[1] = normal
-            return self.close()
+            return 1 if self.close() else 0
 
-        return False
+        return 0
 
     def handle_mouse_move(self, mouse_pos_2d, mouse_pos_3d, event, context):
 

@@ -91,16 +91,17 @@ class Polyline_Shape(Shape):
         super().handle_mouse_press(mouse_pos_2d, mouse_pos_3d, event, context)
 
         if mouse_pos_3d is None:
-            return False
+            return 0
 
         if self.is_draw_input(context) and event.ctrl and self.state == ShapeState.NONE:
             self.state = ShapeState.PROCESSING
-            return False
+            return 0
 
         if self.is_draw_input(context) and event.ctrl and self.state == ShapeState.PROCESSING:
             if self.close():
                 self.start_extrude_immediate(mouse_pos_2d, mouse_pos_3d, context)
-            return False
+                return 1
+            return 0
 
         if (self.is_none() and event.ctrl) or (self.is_processing() and not event.ctrl):
 
@@ -109,7 +110,7 @@ class Polyline_Shape(Shape):
             self.add_v3_mirror(mouse_pos_3d)
 
             self.state = ShapeState.PROCESSING
-            return False
+            return 0
 
         elif self.is_processing() and event.ctrl and self.can_close():
             self.add_v3(mouse_pos_3d)
@@ -129,12 +130,13 @@ class Polyline_Shape(Shape):
                 self.add_shape_action(Shape_Operation_Action())
 
                 self.start_extrude_immediate(mouse_pos_2d, mouse_pos_3d, context)
-            return False
+
+            return 1
 
         elif self.is_created() and event.ctrl:
-            return True
+            return 2
 
-        return False
+        return 0
 
     def handle_mouse_move(self, mouse_pos_2d, mouse_pos_3d, event, context):
 

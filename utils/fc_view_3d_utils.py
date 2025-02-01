@@ -87,20 +87,21 @@ def get_selection_center(face_index, obj):
 def get_face_center(face_index, obj):
     center = Vector((0,0,0))
 
-    current_mode = bpy.context.object.mode
+    if obj is not None and bpy.context.object is not None:
 
-    if(face_index != -1):
+        current_mode = bpy.context.object.mode
+        if(face_index != -1):
 
-        bpy.ops.object.mode_set(mode="OBJECT")
+            bpy.ops.object.mode_set(mode="OBJECT")
 
-        bm = bmesh.new()
-        bm.from_mesh(obj.data)
-        bm.transform(obj.matrix_world)
-        bm.faces.ensure_lookup_table()
-        center = bm.faces[face_index].calc_center_median()
-        bm.free()
+            bm = bmesh.new()
+            bm.from_mesh(obj.data)
+            bm.transform(obj.matrix_world)
+            bm.faces.ensure_lookup_table()
+            center = bm.faces[face_index].calc_center_median()
+            bm.free()
 
-        bpy.ops.object.mode_set(mode=current_mode)
+            bpy.ops.object.mode_set(mode=current_mode)
 
     
     return center

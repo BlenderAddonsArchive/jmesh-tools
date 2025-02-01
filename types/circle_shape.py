@@ -106,7 +106,7 @@ class Circle_Shape(Shape):
     def handle_mouse_press(self, mouse_pos_2d, mouse_pos_3d, event, context):
 
         if mouse_pos_3d is None:
-            return False
+            return 0
 
         if self.is_none() and event.ctrl:
 
@@ -115,7 +115,7 @@ class Circle_Shape(Shape):
             self._mouse_start_3d = mouse_pos_3d.copy()
 
             self.state = ShapeState.PROCESSING
-            return False
+            return 0
 
         elif self.is_processing():
 
@@ -134,12 +134,12 @@ class Circle_Shape(Shape):
             self.add_shape_action(Shape_Operation_Action())
             
             self.start_extrude_immediate(mouse_pos_2d, mouse_pos_3d, context)
-            return False
+            return 1
 
         elif self.is_created() and event.ctrl:
-            return True
+            return 2
 
-        return False
+        return 0
 
     def get_gizmo_anchor_vertex(self):
         return self._center_3d

@@ -1,24 +1,19 @@
 import bpy
-from bpy.types import Operator
-
-from bpy.props import *
-
 import blf
-
 import bmesh
 
-import gpu
+from bpy.types import Operator
+from bpy.props import *
+
 from gpu_extras.batch import batch_for_shader
-
 from bpy_extras import view3d_utils
-
-import mathutils
 
 from .utils.fc_bool_util import select_active, execute_boolean_op, execute_slice_op, is_apply_immediate
 from .utils.fc_bevel_util import *
 from .utils.fc_view_3d_utils import *
 
 from .types.shape import *
+from .types.shape_data import *
 from .types.rectangle_shape import *
 from .types.polyline_shape import *
 from .types.circle_shape import *
@@ -56,7 +51,9 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
         self.draw_handle_2d = None
         self.draw_handle_3d = None
         self.draw_event  = None
-        self.shape = Polyline_Shape()
+        self.shapes = []
+        self.current_shape = None
+        self.add_and_set_current_shape(Polyline_Shape())
                 
     def invoke(self, context, event):
         args = (self, context)  
@@ -94,6 +91,13 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
         self.draw_handle_3d = None
         self.draw_event  = None 
 
+    def add_and_set_current_shape(self, new_shape):
+        if self.current_shape != None:
+            if self.current_shape.is_created():
+                self.shapes.append(new_shape)
+
+        self.current_shape = new_shape
+
     def get_snapped_mouse_pos(self, mouse_pos_2d, context):
 
         mouse_pos_3d = self.get_3d_for_mouse(mouse_pos_2d, context)
@@ -108,7 +112,7 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
 
         # Check if to snap to the surface of the object
         if context.scene.snap_to_target:
-            mouse_pos_3d = self.shape.get_3d_for_2d(mouse_pos_2d, context)
+            mouse_pos_3d = self.current_shape.get_3d_for_2d(mouse_pos_2d, context)
 
             if mouse_pos_3d is None:
                 mouse_pos_3d = get_3d_vertex(context, mouse_pos_2d)
@@ -129,51 +133,51 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
 
         RM = "RUNNING_MODAL"
 
-        if self.shape.shape_action_widgets_handle_event(event):
+        if self.current_shape.shape_action_widgets_handle_event(event):
             return { RM }
                               
         if event.type == "ESC" and event.value == "PRESS":
 
-            was_none = self.shape.is_none()
+            was_none = self.current_shape.is_none()
 
-            self.shape.reset()
+            self.current_shape.reset()
 
             if was_none:
                 self.unregister_handlers(context)
                 return { "FINISHED" }
 
         if event.type == "RET" and event.value == "PRESS":
-            self.shape.accept()
+            self.current_shape.accept()
 
         # The mouse wheel is moved
-        if not self.shape.is_none():
+        if not self.current_shape.is_none():
             up = event.type == "WHEELUPMOUSE"
             down = event.type == "WHEELDOWNMOUSE"
             if up or down:
                 inc = 1 if up else -1
-                if self.shape.handle_mouse_wheel(inc, context):
+                if self.current_shape.handle_mouse_wheel(inc, context):
                     mouse_pos_2d = (event.mouse_region_x, event.mouse_region_y)
                     mouse_pos_3d = self.get_3d_for_mouse(mouse_pos_2d, context)
                     
-                    self.shape.create_batch(mouse_pos_3d)
+                    self.current_shape.create_batch(mouse_pos_3d)
                     result = RM
 
         # The mouse is moved
-        if event.type == "MOUSEMOVE" and not self.shape.is_none():
+        if event.type == "MOUSEMOVE" and not self.current_shape.is_none():
             
-            mouse_pos_2d = self.shape.get_mouse_pos_2d(event.mouse_region_x, event.mouse_region_y)
+            mouse_pos_2d = self.current_shape.get_mouse_pos_2d(event.mouse_region_x, event.mouse_region_y)
 
             if self.is_mouse_valid(mouse_pos_2d):
                 mouse_pos_2d, mouse_pos_3d = self.get_snapped_mouse_pos(mouse_pos_2d, context)
 
-                if self.shape.handle_mouse_move(mouse_pos_2d, mouse_pos_3d, event, context):
-                    self.shape.create_batch(mouse_pos_3d)
+                if self.current_shape.handle_mouse_move(mouse_pos_2d, mouse_pos_3d, event, context):
+                    self.current_shape.create_batch(mouse_pos_3d)
 
         # Left mouse button is released
         if event.value == "RELEASE" and event.type == "LEFTMOUSE":
 
             mouse_pos_2d = (event.mouse_region_x, event.mouse_region_y)
-            self.shape.handle_mouse_release(mouse_pos_2d, event, context)
+            self.current_shape.handle_mouse_release(mouse_pos_2d, event, context)
 
             self.shape_gizmo.mouse_up(context, mouse_pos_2d)
 
@@ -191,7 +195,7 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
 
                 # If an object is hit, set it as target
                 if event.ctrl:
-                    hit, hit_obj = self.shape.is_object_hit(mouse_pos_2d_r, context)
+                    hit, hit_obj = self.current_shape.is_object_hit(mouse_pos_2d_r, context)
                     if hit:
                         context.scene.carver_target = hit_obj
 
@@ -209,82 +213,86 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
                 if gizmo_action:
                     result = RM
 
-                for shape_action in self.shape._shape_actions:
+                for shape_action in self.current_shape._shape_actions:
                     if shape_action.mouse_inside(context, event, mouse_pos_2d_r, mouse_pos_3d):
                         unitinfo = get_current_units()
                         if type(shape_action) is Shape_Size_Action:
-                            if self.shape.open_size_action(context, shape_action, unitinfo):
+                            if self.current_shape.open_size_action(context, shape_action, unitinfo):
                                result = RM
                         elif type(shape_action) is Shape_Array_Action:
-                            if self.shape.open_array_input(context, shape_action, unitinfo):
+                            if self.current_shape.open_array_input(context, shape_action, unitinfo):
                                result = RM
                         elif type(shape_action) is Shape_CircleArray_Action:
-                            if self.shape.open_circle_array_input(context, shape_action, unitinfo):
+                            if self.current_shape.open_circle_array_input(context, shape_action, unitinfo):
                                result = RM
                         elif type(shape_action) is Shape_Mirror_Action:
-                            if self.shape.open_mirror_input(context, shape_action, unitinfo):
+                            if self.current_shape.open_mirror_input(context, shape_action, unitinfo):
                                result = RM
                         else:
-                            if self.shape.open_operation_input(context, shape_action, unitinfo):
+                            if self.current_shape.open_operation_input(context, shape_action, unitinfo):
                                 result = RM                                                      
 
-                if self.shape.is_moving() and not self.shape_gizmo.is_dragging():
-                    self.shape.stop_move(context)
+                if self.current_shape.is_moving() and not self.shape_gizmo.is_dragging():
+                    self.current_shape.stop_move(context)
 
-                if self.shape.is_sizing():
-                    self.shape.stop_size(context)
+                if self.current_shape.is_sizing():
+                    self.current_shape.stop_size(context)
 
-                if self.shape.is_extruding():
-                    self.shape.stop_extrude(context)
+                if self.current_shape.is_extruding():
+                    self.current_shape.stop_extrude(context)
 
-                if self.shape.is_rotating():
-                    self.shape.stop_rotate(context)
+                if self.current_shape.is_rotating():
+                    self.current_shape.stop_rotate(context)
 
-                if self.shape.is_shape_action_active():
+                if self.current_shape.is_shape_action_active():
                     return { RM }
 
-                if self.shape.is_processing():
+                if self.current_shape.is_processing():
                     result = RM
 
-                if self.shape.is_created() and not gizmo_action and not event.ctrl and not self.shape.is_shape_action_active():
-                    if self.shape.set_vertex_moving(mouse_pos_3d):
+                if self.current_shape.is_created() and not gizmo_action and not event.ctrl and not self.current_shape.is_shape_action_active():
+                    if self.current_shape.set_vertex_moving(mouse_pos_3d):
                         result = RM
 
-                if not gizmo_action and not self.shape.is_shape_action_active():
-                    if self.shape.handle_mouse_press(mouse_pos_2d, mouse_pos_3d, event, context):
+                if not gizmo_action and not self.current_shape.is_shape_action_active():
+                    result_mouse_press = self.current_shape.handle_mouse_press(mouse_pos_2d, mouse_pos_3d, event, context)
+                    if  result_mouse_press == 2:
 
                         self.create_object(context)
 
                     else:
                         # So that the direction is defined during shape
                         # creation, not when it is extruded
-                        if self.shape.is_processing():
+                        if self.current_shape.is_processing():
                             view_context = ViewContext(context)
-                            self.shape.set_view_context(view_context)
+                            self.current_shape.set_view_context(view_context)
+
+                        elif self.current_shape.is_created() and result_mouse_press == 1:
+                            self.add_new_shape()
                     
-                self.shape.create_batch(mouse_pos_3d)
+                self.current_shape.create_batch(mouse_pos_3d)
 
         # Keyboard
         if event.value == "PRESS":
 
             if event.type == "M" and event.alt:
-                if self.shape.can_convert_to_mesh():
+                if self.current_shape.can_convert_to_mesh():
                     self.create_mesh(context, False)
                     result = RM
-                elif self.shape.can_create_from_mesh():
-                    self.shape = Polyline_Shape()
+                elif self.current_shape.can_create_from_mesh():
+                    self.current_shape = Polyline_Shape()
                     context.scene.primitive_type == "Polyline"
-                    self.shape.create_from_mesh(context)
+                    self.current_shape.create_from_mesh(context)
                     result = RM
 
             if event.type == "S":
                 mouse_pos_2d = (event.mouse_region_x, event.mouse_region_y)
                 mouse_pos_2d, mouse_pos_3d = self.get_snapped_mouse_pos(mouse_pos_2d, context)
 
-                if self.shape.start_size(mouse_pos_3d):
+                if self.current_shape.start_size(mouse_pos_3d):
 
                     # TODO: Also size the extrusion?
-                    self.shape.reset_extrude()
+                    self.current_shape.reset_extrude()
                     result = RM
 
             # try to move the shape
@@ -293,12 +301,12 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
 
                 mouse_pos_2d, mouse_pos_3d = self.get_snapped_mouse_pos(mouse_pos_2d, context)
 
-                if self.shape.start_move(mouse_pos_3d):
+                if self.current_shape.start_move(mouse_pos_3d):
                     result = RM
 
-            if self.shape.is_moving():
+            if self.current_shape.is_moving():
                 if event.type in ["X", "Y", "N"]:
-                    self.shape.set_move_axis(event.type)
+                    self.current_shape.set_move_axis(event.type)
                     result = RM
 
             # try to rotate the shape
@@ -307,40 +315,40 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
 
                 mouse_pos_3d = self.get_3d_for_mouse(mouse_pos_2d, context)
 
-                if self.shape.start_rotate(mouse_pos_2d, mouse_pos_3d, context):
-                    self.shape.create_batch()
+                if self.current_shape.start_rotate(mouse_pos_2d, mouse_pos_3d, context):
+                    self.current_shape.create_batch()
                     result = RM
 
             # Try set mirror type for primitives
             if event.type == "M" and not event.alt:
-                if self.shape.is_none():
-                    self.shape.set_next_mirror(context)
-                    self.shape.build_actions()
+                if self.current_shape.is_none():
+                    self.current_shape.set_next_mirror(context)
+                    self.current_shape.build_actions()
                     result = RM
 
             # try to extrude the shape
-            if self.shape.is_extruding():
+            if self.current_shape.is_extruding():
                 if (event.type == "DOWN_ARROW" or event.type == "UP_ARROW"):
-                    self.shape.handle_extrude(event.type == "UP_ARROW", context)
-                    self.shape.create_batch()
+                    self.current_shape.handle_extrude(event.type == "UP_ARROW", context)
+                    self.current_shape.create_batch()
                     result = RM
                 elif (event.type in ["X", "Y", "Z", "N"]):
-                    self.shape.set_extrude_axis(event.type)
-                    self.shape.create_batch()
+                    self.current_shape.set_extrude_axis(event.type)
+                    self.current_shape.create_batch()
                     result = RM
 
             if event.type == "E":
                 mouse_pos_2d = (event.mouse_region_x, event.mouse_region_y)
                 mouse_pos_3d = self.get_3d_for_mouse(mouse_pos_2d, context)
 
-                if self.shape.start_extrude(mouse_pos_2d, mouse_pos_3d, context):
-                    self.shape.create_batch()
+                if self.current_shape.start_extrude(mouse_pos_2d, mouse_pos_3d, context):
+                    self.current_shape.create_batch()
                     result = RM
 
             # toggle input method
             if event.type == "I":
-                self.shape.set_next_input_method(context)
-                self.shape.build_actions()
+                self.current_shape.set_next_input_method(context)
+                self.current_shape.build_actions()
 
                 result = RM
 
@@ -349,25 +357,25 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
                 context.scene.bool_mode = next_enum(context.scene.bool_mode, 
                                                     context.scene, "bool_mode")
 
-                self.shape.build_actions()
+                self.current_shape.build_actions()
 
                 result = RM
 
             if event.type == "C":
-                if self.shape.can_set_center_type():
+                if self.current_shape.can_set_center_type():
                     context.scene.center_type = next_enum(context.scene.center_type, context.scene, "center_type")
-                    self.shape.build_actions()
+                    self.current_shape.build_actions()
                     result = RM
 
             if event.type == "F":
-                if self.shape.can_start_from_center():
+                if self.current_shape.can_start_from_center():
                     context.scene.start_center = not context.scene.start_center
-                    self.shape.build_actions()
+                    self.current_shape.build_actions()
                     result = RM
                            
             # toggle primitve  
             if event.type == "P":
-                if self.shape.is_none():
+                if self.current_shape.is_none():
                     context.scene.primitive_type = next_enum(context.scene.primitive_type, 
                                                         context.scene, "primitive_type")
 
@@ -376,28 +384,35 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
              
         return { result }
 
-    def create_shape(self, context):
-        if self.shape.is_none():
-            if context.scene.primitive_type == "Circle":
-                self.shape = Circle_Shape()
-            elif context.scene.primitive_type == "Polyline":
-                self.shape = Polyline_Shape()
-            elif context.scene.primitive_type == "Curve":
-                self.shape = Curve_Shape()
-            else:
-                self.shape = Rectangle_Shape()
+    def add_new_shape(self):
+        pass
+        # scene = bpy.context.scene
+        # new_shape = scene.shape_list.add()
+        # new_shape.name = "Shape 1"
+        # new_shape.shape_type = ShapeType.POLYGON
 
-            self.shape.initialize(context)
+    def create_shape(self, context):
+        if self.current_shape.is_none():
+            if context.scene.primitive_type == "Circle":
+                self.current_shape = Circle_Shape()
+            elif context.scene.primitive_type == "Polyline":
+                self.current_shape = Polyline_Shape()
+            elif context.scene.primitive_type == "Curve":
+                self.current_shape = Curve_Shape()
+            else:
+                self.current_shape = Rectangle_Shape()
+
+            self.current_shape.initialize(context)
 
     def create_object(self, context):
         # TODO: Refactor -> Creation factory with shape as parameter
-        if self.shape.connected_shape():
+        if self.current_shape.connected_shape():
             self.create_mesh(context, True)
         else:
             self.create_curve(context)
 
     def create_curve(self, context):
-        curve_shape = self.shape
+        curve_shape = self.current_shape
         if curve_shape.is_2_points_input():
             self.create_bezier(context)
         else:
@@ -415,7 +430,7 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
         if context.object is not None:
             bpy.ops.object.mode_set(mode='OBJECT')
 
-        curve_shape = self.shape
+        curve_shape = self.current_shape
         bpy.ops.curve.primitive_nurbs_path_add(enter_editmode=True)
 
         self.set_bevel(context.active_object)
@@ -426,14 +441,14 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
         for point in curve_shape.get_points():
             bpy.ops.curve.vertex_add(location=point)
 
-        self.shape.reset()
+        self.current_shape.reset()
 
 
     def create_bezier(self, context):
         if context.object is not None:
             bpy.ops.object.mode_set(mode='OBJECT')
 
-        curve_shape = self.shape
+        curve_shape = self.current_shape
         bpy.ops.curve.primitive_bezier_curve_add(enter_editmode=True, location=(0, 0, 0))
 
         curve = context.active_object
@@ -456,7 +471,7 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
             bez_points[point_count].handle_right = bez_points[point_count].co - norm_end
             bez_points[point_count].handle_left = bez_points[point_count].co + norm_end
 
-        self.shape.reset()
+        self.current_shape.reset()
 
     def add_bool_obj_to_collection(self, context, obj):
 
@@ -481,8 +496,8 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
 
             # Create a mesh and an object and 
             # add the object to the scene collection
-            mesh = bpy.data.meshes.new(str(self.shape) + "_Mesh")
-            obj  = bpy.data.objects.new(str(self.shape) + "_Object", mesh)
+            mesh = bpy.data.meshes.new(str(self.current_shape) + "_Mesh")
+            obj  = bpy.data.objects.new(str(self.current_shape) + "_Object", mesh)
 
             if is_apply_immediate() or is_bool_create:
                 bpy.context.scene.collection.objects.link(obj)
@@ -499,22 +514,22 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
             bm = bmesh.new()
             bm.from_mesh(mesh) 
 
-            for v in self.shape.vertices:
+            for v in self.current_shape.vertices:
                 bm.verts.new(v)
             
             bm.verts.index_update()
             bm.faces.new(bm.verts)
 
-            if self.shape.has_mirror:
+            if self.current_shape.has_mirror:
                 # Add faces for the mirrored vertices
                 mirror_verts = []
-                for v in self.shape.vertices_mirror:
+                for v in self.current_shape.vertices_mirror:
                     mirror_verts.append(bm.verts.new(v))
                 
                 bm.verts.index_update()
                 bm.faces.new(mirror_verts)
 
-            for vc in self.shape.vertex_containers:
+            for vc in self.current_shape.vertex_containers:
 
                 # Add faces for vertex containers like arrays
                 ctr_verts = []
@@ -594,10 +609,10 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
         if not is_bool_create:
             length = 100
         
-        dir = self.shape.get_dir() * length
+        dir = self.current_shape.get_dir() * length
 
-        if self.shape.is_extruded():
-            dir = self.shape.get_dir() * self.shape.extrusion
+        if self.current_shape.is_extruded():
+            dir = self.current_shape.get_dir() * self.current_shape.extrusion
 
         # extr_geom = bm.edges[:]
         extr_geom = bm.faces[:]
@@ -638,13 +653,13 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
 	# Draw handler to paint in pixels
     def draw_callback_2d(self, op, context):
 
-        self.shape.draw_text()
+        self.current_shape.draw_text()
 
-        self.shape_gizmo.draw(self.shape)
+        self.shape_gizmo.draw(self.current_shape)
 
-        self.shape.shape_actions_draw()
+        self.current_shape.shape_actions_draw()
 
-        self.shape.shape_action_widgets_draw()
+        self.current_shape.shape_action_widgets_draw()
 
         # Draw text for primitive mode
         fsize = get_preferences().osd_font_size
@@ -670,21 +685,21 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
         pos_x[0] += off_x
         pos_x[1] += off_x
 
-        self.draw_action_line(self.shape.actions[0], pos_y, pos_x)
+        self.draw_action_line(self.current_shape.actions[0], pos_y, pos_x)
 
-        for index in range(len(self.shape.actions)-1):
-            action = self.shape.actions[index+1]
+        for index in range(len(self.current_shape.actions)-1):
+            action = self.current_shape.actions[index+1]
             self.draw_action_line(action, (pos_y - 10) - (index + 1) * line_height, pos_x)
 
         blf.color(1, 1, 1, 1, 1)
 
     def get_actions_height(self, size):
-        return len(self.shape.actions) * size
+        return len(self.current_shape.actions) * size
 
 
 	# Draw handler to paint onto the screen
     def draw_callback_3d(self, op, context):
         
-        self.shape.draw(context)
+        self.current_shape.draw(context)
 
-        self.shape.set_shape_actions_position()
+        self.current_shape.set_shape_actions_position()

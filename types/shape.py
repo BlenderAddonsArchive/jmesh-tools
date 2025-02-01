@@ -1170,9 +1170,13 @@ class Shape:
 
         return diff_m 
 
+    # TODO: New return values
+    # 0 = Nothing
+    # 1 = Created
+    # 2 = Post Created
     def handle_mouse_press(self, mouse_pos_2d, mouse_pos_3d, event, context):
         self._mouse_pressed = True
-        return False
+        return 0
 
     def handle_mouse_release(self, mouse_pos_2d, event, context):
         self._mouse_pressed = False
