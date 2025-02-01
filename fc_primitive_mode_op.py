@@ -125,6 +125,12 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
     def is_mouse_valid(self, mouse_pos_2d):
         return mouse_pos_2d is not None and mouse_pos_2d[0] >= 0 and mouse_pos_2d[1] >= 0
 
+    def clear_shape_list(self):
+        scene = bpy.context.scene
+
+        # Alle Elemente in der Collection löschen
+        scene.shape_list.clear()
+
     def modal(self, context, event):
         if context.area:
             context.area.tag_redraw()
@@ -144,6 +150,10 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
 
             if was_none:
                 self.unregister_handlers(context)
+
+                # for testing, as long as we dont have 
+                # handling for multiple shapes
+                self.clear_shape_list()
                 return { "FINISHED" }
 
         if event.type == "RET" and event.value == "PRESS":
@@ -384,12 +394,27 @@ class FC_Primitive_Mode_Operator(bpy.types.Operator):
              
         return { result }
 
+    def generate_unique_shape_name(self, base_name="Shape"):
+        # Zugriff auf die shape_list des aktuellen Scenes
+        scene = bpy.context.scene
+        existing_names = {shape.name for shape in scene.shape_list}
+
+        # Initialer Zähler
+        counter = 1
+        unique_name = f"{base_name} {counter}"
+        
+        # Prüfen, ob der Name existiert
+        while unique_name in existing_names:
+            counter += 1
+            unique_name = f"{base_name} {counter}"
+        
+        return unique_name
+
     def add_new_shape(self):
-        pass
-        # scene = bpy.context.scene
-        # new_shape = scene.shape_list.add()
-        # new_shape.name = "Shape 1"
-        # new_shape.shape_type = ShapeType.POLYGON
+        scene = bpy.context.scene
+        new_shape = scene.shape_list.add()
+        new_shape.name = self.generate_unique_shape_name()
+        new_shape.shape_type = ShapeType.POLYGON
 
     def create_shape(self, context):
         if self.current_shape.is_none():
